@@ -1,0 +1,60 @@
+name: IRCTC Booking Automation
+
+on:
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
+  schedule:
+    - cron: '59 9 * * 1-5'  # Optional: Auto-run Mon-Fri at 9:59 AM IST (adjust for Tatkal)
+
+jobs:
+  booking:
+    runs-on: ubuntu-latest  # GitHub's Linux cloud machine
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'  # Modern version; works in cloud
+
+    - name: Install Node dependencies
+      run: npm ci  # Clean install
+
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+
+    - name: Install Python dependencies
+      run: |
+        cd irctc-captcha-solver
+        pip install -r requirements.txt
+
+    - name: Run Captcha Solver Server (in background)
+      run: |
+        cd irctc-captcha-solver
+        python app-server.py --host 0.0.0.0 --port 5001 &
+        sleep 5  # Wait for server to start
+
+    - name: Run IRCTC Booking
+      uses: cypress-io/github-action@v6
+      with:
+        install: false  # Already installed
+        start: npm run start-booking
+        wait-on: 'http://localhost:5001'  # Wait for captcha server
+        wait-on-timeout: 30
+        browser: chrome
+        env: |
+          USERNAME=${{ secrets.IRCTC_USERNAME }}
+          PASSWORD=${{ secrets.IRCTC_PASSWORD }}
+          MANUAL_CAPTCHA=false
+      env:
+        CYPRESS_RECORD_KEY: ${{ secrets.CYPRESS_RECORD_KEY }}  # Optional: For Cypress Cloud dashboard (sign up at cypress.io if wanted)
+
+    - name: Upload Cypress videos/screenshots (if failed)
+      if: failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: cypress-artifacts
+        path: cypress/videos cypress/screenshots
